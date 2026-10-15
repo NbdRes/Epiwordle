@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CIIP Epigraphic Wordle</title>
+  <style>
+    /* ==========================================
+       1. עיצוב כללי (CSS)
+       ========================================== */
+    :root {
+      --bg-color: #121213;
+      --tile-border: #3a3a3c;
+      --key-bg: #818384;
+      --correct: #538d4e; /* ירוק - אות במיקום הנכון */
+      --present: #b59f3b; /* צהוב - אות קיימת במיקום אחר */
+      --absent: #3a3a3c;  /* אפור - אות לא קיימת במילה */
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding: 15px;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+
+    header {
+      text-align: center;
+      border-bottom: 1px solid var(--tile-border);
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+      width: 100%;
+      max-width: 500px;
+    }
+
+    h1 {
+      margin: 0 0 6px 0;
+      font-size: 1.6rem;
+      letter-spacing: 2px;
+      direction: ltr;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+
+    select, button.new-game-btn {
+      background: #272729;
+      color: #fff;
+      border: 1px solid #565758;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    button.new-game-btn:hover {
+      background: #3a3a3c;
+    }
+
+    /* הודעות מערכת ותיבת מידע אפיגרפי */
+    #message {
+      min-height: 24px;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #f5793a;
+      text-align: center;
+    }
+
+    #epigraphic-info {
+      display: none;
+      background-color: #1e1e20;
+      border: 1px solid #538d4e;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 15px;
+      max-width: 480px;
+      width: 100%;
+      font-size: 0.9rem;
+      line-height: 1.4;
+      direction: ltr;
+      text-align: left;
+    }
+
+    #epigraphic-info strong {
+      color: #6aaa64;
+    }
+
+    /* לוח המשחק (6 שורות של 5 אותיות משמאל לימין) */
+    #board {
+      display: grid;
+      grid-template-rows: repeat(6, 1fr);
+      gap: 5px;
+      margin-bottom: 20px;
+      direction: ltr; /* יוונית נכתבת משמאל לימין */
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
+    }
+
+    .tile {
+      width: 54px;
+      height: 54px;
+      border: 2px solid var(--tile-border);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 1.9rem;
+      font-weight: bold;
+      user-select: none;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .tile.correct { background-color: var(--correct); border-color: var(--correct); }
+    .tile.present { background-color: var(--present); border-color: var(--present); }
+    .tile.absent  { background-color: var(--absent);  border-color: var(--absent); }
+
+    /* מקלדת יוונית וירטואלית */
+    #keyboard {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 500px;
+      width: 100%;
+      direction: ltr;
+    }
+
+    .kb-row {
+      display: flex;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .key {
+      background-color: var(--key-bg);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      height: 48px;
+      flex: 1;
+      max-width: 44px;
+      font-size: 1.05rem;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      user-select: none;
+    }
+
+    .key.wide {
+      max-width: 68px;
+      font-size: 0.85rem;
+    }
+
+    .key.correct { background-color: var(--correct); }
+    .key.present { background-color: var(--present); }
+    .key.absent  { background-color: var(--absent); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>ΕΠΙΓΡΑΦΗ WORDLE</h1>
+    <div class="controls">
+      <label for="mode-select">מאגר מילים:</label>
+      <select id="mode-select" onchange="initGame()">
+        <option value="frequent">נפוצות בקורפוס (32 מילים, שכיחות ≥ 2)</option>
+        <option value="all">כל הקורפוס (117 מילים)</option>
+      </select>
+      <button class="new-game-btn" onclick="initGame()">משחק חדש ↻</button>
+    </div>
+  </header>
+
+  <div id="message"></div>
+  <div id="epigraphic-info"></div>
+  <div id="board"></div>
+  <div id="keyboard"></div>
+
+  <script>
+    // =========================================================
+    // 2. מסד הנתונים שחולץ מתוך ciip_final_v2.csv (עמודת Text)
+    // =========================================================
+    // כל מילה מכילה את שכיחותה בקורפוס (count), מזהה כתובת מייצגת (id), והטקסט המקורי (text)
+    const EPIGRAPHIC_DB = {
+      // --- מילים נפוצות (מופיעות פעמיים או יותר בקורפוס) ---
+      "ΚΥΡΙΕ": { count: 9, id: "1178", text: "Κύριε, βοήθι Προκοπίᾳ" },
+      "ΒΟΗΘΙ": { count: 6, id: "1177", text: "εἷς θεὸς | βοήθι Μα|ρίνῳ" },
+      "ΕΤΟΥΣ": { count: 6, id: "1124", text: "Ζωίλα ἐνθά|δε κεῖται, | ἐτῶν τριά|κοντα, φί|λανδρος. (ἔτους) γλς’ Ἀπελ|λαίου κς’. | Θάρσει!" },
+      "ΜΝΗΜΑ": { count: 4, id: "1484", text: "μνῆμα Ἰάκ|ωνα Βαν[--|--]" },
+      "ΟΥΔΕΝ": { count: 3, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΣΟΡΟΣ": { count: 3, id: "1455", text: "σορὸς Βοήθου [καὶ] | Σιμω|νίδου" },
+      "ΤΕΚΝΑ": { count: 3, id: "1528", text: "θήκ[η Πο]|λυχρο[νίου] | κὲ Οὔρ[σο]|υ, τέκ[να] | Σευ[ήρου]" },
+      "ΧΑΡΙΝ": { count: 3, id: "1444", text: "A[--] Ἰοσανίας | Φηλίκλᾳ τῇ συνβίῳ μνήμης | χάριν. | εὐψύχει" },
+      "ΑΓΙΑΣ": { count: 2, id: "1751", text: "(cross) τάλαντον | τῆς ἁγίας Μαρίας" },
+      "ΑΛΥΠΕ": { count: 2, id: "1454", text: "Ἀντωνίνε, ἄλυπε, χαῖρε" },
+      "ΑΞΙΑΣ": { count: 2, id: "1451", text: "θήκη | Ἀναστασ[ίου] | καὶ Ἀξίας" },
+      "ΑΥΤΗΣ": { count: 2, id: "1334", text: "Θέλεις | μὴ φοβεῖσθαι | τἡν ἐξουσίαν; τὸ | ἀγαθὸν ποίει, | καὶ ἕξεις ἔπαινον ἐξ αὐτῆς" },
+      "ΑΥΤΟΥ": { count: 2, id: "1339", text: "Χ(ριστ)έ, βοήθι Ἀμπελίῳ χαρτ(ουλαρίῳ) | καὶ Μουσωνίῳ νουμερ(αρίῳ) | καὶ παντὶ τῷ οἴκῳ αὐτοῦ" },
+      "ΑΥΤΩΝ": { count: 2, id: "1173", text: "ἀπὸ καρ|ποῦ σίτου | καὶ οἴνου καὶ | ἐλέου αὐτῶν | ἐπληθύν|τησαν" },
+      "ΔΗΣΟΝ": { count: 2, id: "1680", text: "δῆσον [α]ὐτούς, κα[τά]δησον, ἵνα | μὴ δυνηθ[ῶσιν...]" },
+      "ΕΛΕΟΥ": { count: 2, id: "1173", text: "ἀπὸ καρ|ποῦ σίτου | καὶ οἴνου καὶ | ἐλέου αὐτῶν | ἐπληθύν|τησαν" },
+      "ΕΡΓΟΝ": { count: 2, id: "1373", text: "μετὰ τῶν ἄλλων πολλῶν | καὶ μεγάλων ἔργων | καὶ τὸ ἔργον τῆς πλακώσεως..." },
+      "ΕΡΓΩΝ": { count: 2, id: "1373", text: "μετὰ τῶν ἄλλων πολλῶν | καὶ μεγάλων ἔργων | καὶ τὸ ἔργον τῆς πλακώσεως..." },
+      "ΕΣΧΕΝ": { count: 2, id: "1427", text: "ὅσον φύσις ἔσχεν [--]" },
+      "ΗΛΙΑΣ": { count: 2, id: "1165", text: "1(a) Ἀ[ρή]της 1(b) Σ[έρ]γης 2(a) [Πρό]μος 3(a) [Ἠλί]ας" },
+      "ΘΕΣΙΣ": { count: 2, id: "1475", text: "θέσις [Γεορ]|γίου κ[αὶ --]" },
+      "ΛΙΤΡΑ": { count: 2, id: "1735", text: "Ἐπὶ(?) [...]|κοπ(?)ί(?)ας | Ὑπατί[.]|ου λί(τρα) (μία)" },
+      "ΟΙΚΟΣ": { count: 2, id: "1122", text: "ἀμβροσίης τελέθω καὶ ν[έκταρος οἶκο]ς ἀρείων | καί με Μαρῖνος ἔτευξε..." },
+      "ΠΟΔΑΣ": { count: 2, id: "1139", text: "Ἰοῦλις εὐξάμ[ε]νο[ς ἐπο]ί[ησε πό]δ[ας --]" },
+      "ΠΟΙΕΙ": { count: 2, id: "1334", text: "Θέλεις | μὴ φοβεῖσθαι | τἡν ἐξουσίαν; τὸ | ἀγαθὸν ποίει..." },
+      "ΤΙΤΟΝ": { count: 2, id: "1266", text: "Τ(ίτον) Φλ(άουιον) Μάξιμον | φιλόσοφον | Οὐάριος Σέλευκος | κουράτορ πλοίων..." },
+      "ΤΟΠΟΣ": { count: 2, id: "1483", text: "τόπ[ος --]|σίου κα[ὶ Ἰακώ]|βου[--]" },
+      "ΤΡΕΙΣ": { count: 2, id: "1742", text: "(Οὐνκίαι) (τρεῖς)" },
+      "ΦΩΤΙΝ": { count: 2, id: "1680", text: "συνπόδισον Ἀσκλῆπιν ὃν ἔτεκεν Φάδιλλα καὶ Φῶτιν ὃν ἔτεκεν Θεοδώρα..." },
+      "ΧΑΙΡΕ": { count: 2, id: "1454", text: "Ἀντωνίνε, ἄλυπε, χαῖρε" },
+      "ΧΑΡΙΣ": { count: 2, id: "1419", text: "χάρις | ὑγία | τοῖς | ὧδε" },
+      "ΧΡΥΣΑ": { count: 2, id: "1196", text: "ἱπποτρόφοις δ’ κ(ατὰ) μῆ(να) α’ νο(μίσματος)..." },
+
+      // --- מילים נוספות מהקורפוס (שכיחות = 1) ---
+      "ΑΓΑΘΑ": { count: 1, id: "1531", text: "εὐψυχ[εῖτε, φίλα] μου τέ|κνα. εὐψ[ύχε]ι, Πρεῖσκε..." },
+      "ΑΓΗΟΥ": { count: 1, id: "1785", text: "Ἀγήου Θεοδό[--]" },
+      "ΑΓΙΟΙ": { count: 1, id: "1680", text: "κύριοι ἅγιοι ἄνγελοι καὶ θεῖοι χαρακτῆρες..." },
+      "ΑΖΑΝΑ": { count: 1, id: "1490", text: "τώπος | Ἰσιδώρου | Θεωδώρ|ου Ἰάκω Δω|θη αζανα" },
+      "ΑΛΛΩΝ": { count: 1, id: "1373", text: "μετὰ τῶν ἄλλων πολλῶν | καὶ μεγάλων ἔργων..." },
+      "ΑΞΙΑΝ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΑΥΤΟΝ": { count: 1, id: "1348", text: "τῷ οἴκῳ σου πρέπει ἁγίασ|μα, κ(ύρι)ε, ἐθεμελίωσας γὰρ αὐτὸ|ν..." },
+      "ΑΨΙΔΑ": { count: 1, id: "1263", text: "ἐπὶ Φλ(αουίου) Ἐντολίου... ἐγένετο ἡ πλα|τεῖα σὺν τῇ ἁψῖδα..." },
+      "ΒΑΒΑΣ": { count: 1, id: "1123", text: "εἷς θεὸς ὁ ζῶν. Βαβᾶς Μαξίμου, | ἐγγόνην Κοσμᾶ, ἐποίησεν τὸ μν|ημῖον" },
+      "ΓΑΖΗΣ": { count: 1, id: "1758", text: "Εὐσ[ε]|βίου || ἐπι[σ]κ(όπου) | Γάζης" },
+      "ΓΕΝΟΣ": { count: 1, id: "1568", text: "Ζωσίμης εὐμοίρου σ|ορὸς ἥδε δέμας κατα|κρύβει, Ἰταλικὴν τὸ γέν|ος..." },
+      "ΓΕΡΑΣ": { count: 1, id: "1264", text: "ΕΥ[--]ς τύπος [--|--]+ησα ἱερο[--]μον Εὐσέβι[ον]..." },
+      "ΔΑΣΣΑ": { count: 1, id: "1481", text: "Ἰακκώβου Δασσᾶ ἱοῦ | Γάδη" },
+      "ΔΕΜΑΣ": { count: 1, id: "1568", text: "Ζωσίμης εὐμοίρου σ|ορὸς ἥδε δέμας κατα|κρύβει..." },
+      "ΔΕΞΙΑ": { count: 1, id: "1175", text: "[--]ις μου, ὅτι ἔ|[σωσέν] με ἡ δεξία σου" },
+      "ΔΟΞΗΣ": { count: 1, id: "1174", text: "φωνὴ Κ(υρίο)υ | ἐπὶ τῶν | ὑδάτων, | ὁ θ(εὸ)ς τῆς δό|ξης ἐβρόντη|σεν" },
+      "ΔΡΟΜΩ": { count: 1, id: "1260", text: "Δημοτέρη τίμησε Νόμον χρυσέῃ ἐνὶ μορφῇ..." },
+      "ΕΙΧΕΝ": { count: 1, id: "1264", text: "ΕΥ[--]ς τύπος [--|--]+ησα ἱερο[--]μον Εὐσέβι[ον]..." },
+      "ΕΛΕΟΝ": { count: 1, id: "1172", text: "Κ(ύριο)ς ὁ Θ(εὸ)ς εὐλο|γήσει τὸν σῖτόν | σου καὶ τὸν οἶνόν | σου καὶ τὸ ἔλεόν | σου" },
+      "ΕΝΓΥΣ": { count: 1, id: "1613", text: "ἐξουσιάζιν π[ᾶσι τοῖς] | ἀπογενη(σομένοις) [--τοῦ] | ἐνγὺ[ς τεθῆναι]" },
+      "ΕΞΕΙΣ": { count: 1, id: "1334", text: "τὸ | ἀγαθὸν ποίει, | καὶ ἕξεις ἔπαινον ἐξ αὐτῆς" },
+      "ΕΣΤΙΝ": { count: 1, id: "1348", text: "τῷ οἴκῳ σου πρέπει ἁγίασ|μα, κ(ύρι)ε..." },
+      "ΕΤΥΧΕ": { count: 1, id: "1264", text: "ΕΥ[--]ς τύπος [--|--]+ησα ἱερο[--]μον Εὐσέβι[ον]..." },
+      "ΕΥΧΗΣ": { count: 1, id: "1151", text: "ὑπὲ[ρ σωτηρίας --, εὐχῆς etc.]" },
+      "ΖΩΙΛΑ": { count: 1, id: "1124", text: "Ζωίλα ἐνθά|δε κεῖται, | ἐτῶν τριά|κοντα, φί|λανδρος." },
+      "ΗΛΙΟΥ": { count: 1, id: "1262", text: "ἐπὶ Φλ(αουίου) | Εὐελπιδίου τοῦ | μεγαλοπρ(επεστάτου) κόμ(ητος) | καὶ Ἠλίου..." },
+      "ΗΡΙΝΗ": { count: 1, id: "1189", text: "[--]των ἠρίνη ἐπὶ το[--]" },
+      "ΗΤΤΟΝ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΘΑΡΣΙ": { count: 1, id: "1515", text: "θάρσι, Μηνόφιλα ἀσύνκριτε, | οὐδεὶς ἀθάνατος. ταῦτα." },
+      "ΘΩΜΑΣ": { count: 1, id: "1158", text: "(a) [--]οΥ (b) [Θω]μα[ς](?)" },
+      "ΙΑΚΟΥ": { count: 1, id: "1486", text: "θήκη Ἰακ|ου υἱὸς Ἰουλ|ιανοῦ συν|τέκτων" },
+      "ΙΑΜΟΥ": { count: 1, id: "1701", text: "Ἰάω Σα|βαώθ | Ἀδωναι Μιχαήλ ΔΩ|ΔΩΔΩ ναίκε Ἰαμου" },
+      "ΙΑΣΩΝ": { count: 1, id: "1721", text: "Ἰάσων | Ἰάσων|ος" },
+      "ΙΔΙΟΝ": { count: 1, id: "1457", text: "Αὐρ(ήλιον) Ἑρμογέ|νην Γλύκων | ὁ κὲ Παῦλος | τὸν ἴδιον σύντρο|φον..." },
+      "ΙΕΡΩΝ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΙΗΣΟΥ": { count: 1, id: "1180", text: "Κ(ύρι)ε Ἰ(ησο)ῦ Χ(ριστ)έ, β(οήθ)ε(ι) | τῷ δόλῳ σου" },
+      "ΙΣΧΥΝ": { count: 1, id: "1142", text: "εἱ ὑπομέ[ν]ονταις | [τὸν θεὸν ἀ]λλάξουσιν [ἰσχύ]ν" },
+      "ΚΑΛΗΣ": { count: 1, id: "1378", text: "Ἰωάννης, | υἱὸς Προκοπίου | τοῦ τῆς [καλῆ]ς μνή|μης..." },
+      "ΚΟΜΗΣ": { count: 1, id: "1265", text: "Φιλοκτίστα | κόμης | ΙΟΥΛΙΤΤΕ." },
+      "ΚΟΣΜΑ": { count: 1, id: "1123", text: "εἷς θεὸς ὁ ζῶν. Βαβᾶς Μαξίμου, | ἐγγόνην Κοσμᾶ, ἐποίησεν τὸ μν|ημῖον" },
+      "ΚΥΡΑΣ": { count: 1, id: "1512", text: "[θ]ήκη Μαρ|[ο]ῦ κ(αὶ) Εὐσεβίου | κ(αὶ) Κυρίλλου | κ(αὶ) Κύρας ἀδελφῶν" },
+      "ΚΥΡΙΑ": { count: 1, id: "1679", text: "Σὲ καλῶ, κυρία κρατιρά..." },
+      "ΛΙΜΗΝ": { count: 1, id: "1348", text: "τῷ οἴκῳ σου πρέπει ἁγίασ|μα, κ(ύρι)ε..." },
+      "ΛΟΓΟΝ": { count: 1, id: "1680", text: "...ἀλλὰ ὦσιν συνδεδημένοι κατὰ πάντα λόγον καὶ πρᾶγμα" },
+      "ΛΥΠΑΣ": { count: 1, id: "1680", text: "...καὶ μὴ πώποτε λύσιν ἔχωσιν, ἀλλὰ ἀεὶ συνδέσμους καὶ ἐπωδὰ[ς] καὶ λύπας καὶ βλάβας." },
+      "ΛΥΣΙΝ": { count: 1, id: "1680", text: "...καὶ μὴ πώποτε λύσιν ἔχωσιν..." },
+      "ΜΑΡΙΑ": { count: 1, id: "1477", text: "[θήκη] Γεωρ|[γίου σ]ὺν Μαρ|[ίᾳ κα]ὶ τέ|[κνω]ν" },
+      "ΜΑΡΟΥ": { count: 1, id: "1512", text: "[θ]ήκη Μαρ|[ο]ῦ κ(αὶ) Εὐσεβίου | κ(αὶ) Κυρίλλου | κ(αὶ) Κύρας" },
+      "ΜΗΝΕΣ": { count: 1, id: "1196", text: "ἱπποτρόφοις δ’ κ(ατὰ) μῆ(να)..." },
+      "ΜΟΝΟΣ": { count: 1, id: "1342", text: "εἷς θεὸς μό|νος βοήθει | Εὐσεβίῳ τῷ | [νου]μεραρίῳ" },
+      "ΜΟΡΦΗ": { count: 1, id: "1260", text: "Δημοτέρη τίμησε Νόμον χρυσέῃ ἐνὶ μορφῇ" },
+      "ΝΑΙΚΕ": { count: 1, id: "1701", text: "Ἰάω Σα|βαώθ | Ἀδωναι Μιχαήλ ΔΩ|ΔΩΔΩ ναίκε Ἰαμου" },
+      "ΝΙΚΩΝ": { count: 1, id: "1685", text: "(a) εἷς θεὸς ὁ νικῶν τὰ κακά" },
+      "ΝΟΜΟΝ": { count: 1, id: "1260", text: "Δημοτέρη τίμησε Νόμον χρυσέῃ ἐνὶ μορφῇ" },
+      "ΝΟΜΩΝ": { count: 1, id: "1198", text: "[--| κ]ωλύουσιν [--|--τ]ῶν νόμων [--]" },
+      "ΟΙΝΟΝ": { count: 1, id: "1172", text: "Κ(ύριο)ς ὁ Θ(εὸ)ς εὐλο|γήσει τὸν σῖτόν | σου καὶ τὸν οἶνόν | σου" },
+      "ΟΙΝΟΥ": { count: 1, id: "1173", text: "ἀπὸ καρ|ποῦ σίτου | καὶ οἴνου καὶ | ἐλέου αὐτῶν" },
+      "ΠΑΝΤΑ": { count: 1, id: "1680", text: "...συνδεδημένοι κατὰ πάντα λόγον καὶ πρᾶγμα" },
+      "ΠΑΣΗΣ": { count: 1, id: "1374", text: "[--]+ τῶν ἁψ[ίδων --|--]έως πάσης [--]" },
+      "ΠΑΤΗΡ": { count: 1, id: "1263", text: "...καὶ Ἠλία λαμπρ(οτάτου) πατρὸς τῆς πόλεως..." },
+      "ΠΑΥΛΑ": { count: 1, id: "1786", text: "[Πα]ῦλα γυ[νὴ τοῦ δεῖνος]" },
+      "ΠΕΝΤΕ": { count: 1, id: "1680", text: "...ἀπὸ τῆς σήμερον ἡμέρας καὶ ὥρας εἰς ἐνιαυτοὺς δέκα καὶ πέντε." },
+      "ΠΘΟΝΕ": { count: 1, id: "1420", text: "Πθόνε, π|ατῶ σε" },
+      "ΠΙΣΤΗ": { count: 1, id: "1462", text: "Βρασιδία πιστὴ | ἐνθάδε κῖτε" },
+      "ΠΛΕΟΝ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΠΟΛΛΑ": { count: 1, id: "1331", text: "Ἀ[ν]δρέου | ἐνδοξω(τάτου) | φιλοκτίστου | ἀνθυπάτου | πολλὰ τὰ ἔτη!" },
+      "ΣΙΤΟΝ": { count: 1, id: "1172", text: "Κ(ύριο)ς ὁ Θ(εὸ)ς εὐλο|γήσει τὸν σῖτόν | σου καὶ τὸν οἶνόν | σου" },
+      "ΣΙΤΟΥ": { count: 1, id: "1173", text: "ἀπὸ καρ|ποῦ σίτου | καὶ οἴνου καὶ | ἐλέου αὐτῶν" },
+      "ΣΥΜΩΝ": { count: 1, id: "1555", text: "Σύμων | Ἰακωνα" },
+      "ΣΨΖΟΝ": { count: 1, id: "1153", text: "[--]ε ἤλπισάν σ[οι], αύτα σψζον. [-- σ]ωσον τα αλοyα" },
+      "ΣΩΣΟΝ": { count: 1, id: "1153", text: "[--]ε ἤλπισάν σ[οι], αύτα σψζον. [-- σ]ωσον τα αλοyα" },
+      "ΤΑΥΤΑ": { count: 1, id: "1515", text: "θάρσι, Μηνόφιλα ἀσύνκριτε, | οὐδεὶς ἀθάνατος. ταῦτα." },
+      "ΤΟΙΧΩ": { count: 1, id: "1263", text: "...σὺν τῇ ἁψῖδα καὶ τῷ τοίχῳ..." },
+      "ΤΟΠΩΣ": { count: 1, id: "1567", text: "(a) τόπ[ως Βι]καρίο[υ]" },
+      "ΤΟΥΤΟ": { count: 1, id: "1264", text: "ΕΥ[--]ς τύπος [--|--]+ησα ἱερο[--]μον Εὐσέβι[ον]..." },
+      "ΤΥΠΟΙ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" },
+      "ΤΥΠΟΣ": { count: 1, id: "1264", text: "ΕΥ[--]ς τύπος [--|--]+ησα ἱερο[--]μον Εὐσέβι[ον]..." },
+      "ΤΩΠΟΣ": { count: 1, id: "1490", text: "τώπος | Ἰσιδώρου | Θεωδώρ|ου Ἰάκω Δω|θη αζανα" },
+      "ΦΑΡΑΩ": { count: 1, id: "1680", text: "ὁ συνδήσας τὸ τετράπουν τοῦ Φαραώ, κατάσχες, σύνδησον..." },
+      "ΦΙΛΟΝ": { count: 1, id: "1288", text: "Αὐ[ρ(ήλιον) Μ]άρωνα | ἐπίτρ(οπον) τ[ο]ῦ Σεβ(αστοῦ)..." },
+      "ΦΥΣΙΣ": { count: 1, id: "1427", text: "ὅσον φύσις ἔσχεν [--]" },
+      "ΦΩΤΙΣ": { count: 1, id: "1680", text: "...δῆσον, πόδισον Ἀσκλῆπ[ι]ν [ὃν ἔ]τεκεν Φάδιλλα κ(αὶ) Φῶτις..." },
+      "ΧΗΡΩΝ": { count: 1, id: "1680", text: "...παρὰ γυνεκῶν, χηρῶν, παρθέν[ω]ν, παιδίων ἁπα[σ]ῶν." },
+      "ΧΡΥΣΩ": { count: 1, id: "1179", text: "Κ(ύρι)ε Ἰ(ησοῦ)ς Χ(ριστό)[ς], | βοήθησον | τῷ διακόνῳ | Χρυσῷ..." },
+      "ΧΩΡΑΝ": { count: 1, id: "1197", text: "[τύποι] δοθέντε[ς κατὰ τὰ θεῖα διατάγματα...]" }
+    };
+
+    // =========================================================
+    // 3. משתני מצב המשחק (Game State)
+    // =========================================================
+    const WORD_LENGTH = 5;
+    const MAX_GUESSES = 6;
+    let secretWord = "";
+    let currentRow = 0;
+    let currentGuess = "";
+    let isGameOver = false;
+
+    // פריסת מקלדת יוונית תקנית (24 אותיות)
+    const GREEK_KEYS = [
+      ["Ε", "Ρ", "Τ", "Υ", "Θ", "Ι", "Ο", "Π"],
+      ["Α", "Σ", "Δ", "Φ", "Γ", "Η", "Ξ", "Κ", "Λ"],
+      ["ENTER", "Ζ", "Χ", "Ψ", "Ω", "Β", "Ν", "Μ", "⌫"]
+    ];
+
+    // מיפוי מקלדת פיזית (למי שמקליד במקלדת אנגלית/עברית או יוונית)
+    const LATIN_TO_GREEK = {
+      'A':'Α', 'B':'Β', 'G':'Γ', 'D':'Δ', 'E':'Ε', 'Z':'Ζ', 'H':'Η', 'U':'Θ',
+      'I':'Ι', 'K':'Κ', 'L':'Λ', 'M':'Μ', 'N':'Ν', 'J':'Ξ', 'O':'Ο', 'P':'Π',
+      'R':'Ρ', 'S':'Σ', 'W':'Σ', 'T':'Τ', 'Y':'Υ', 'F':'Φ', 'X':'Χ', 'C':'Ψ', 'V':'Ω'
+    };
+
+    // =========================================================
+    // 4. אתחול המשחק ובניית הלוח והמקלדת
+    // =========================================================
+    function initGame() {
+      const mode = document.getElementById("mode-select").value;
+      const allWords = Object.keys(EPIGRAPHIC_DB);
+      
+      // סינון מילים לפי בחירת המשתמש (נפוצות >= 2 או כל המאגר)
+      const candidatePool = (mode === "frequent")
+        ? allWords.filter(w => EPIGRAPHIC_DB[w].count >= 2)
+        : allWords;
+
+      secretWord = candidatePool[Math.floor(Math.random() * candidatePool.length)];
+      currentRow = 0;
+      currentGuess = "";
+      isGameOver = false;
+
+      showMessage("");
+      const infoBox = document.getElementById("epigraphic-info");
+      infoBox.style.display = "none";
+      infoBox.innerHTML = "";
+
+      buildBoard();
+      buildKeyboard();
+    }
+
+    function buildBoard() {
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+      for (let r = 0; r < MAX_GUESSES; r++) {
+        const row = document.createElement("div");
+        row.className = "row";
+        for (let c = 0; c < WORD_LENGTH; c++) {
+          const tile = document.createElement("div");
+          tile.className = "tile";
+          tile.id = `tile-${r}-${c}`;
+          row.appendChild(tile);
+        }
+        board.appendChild(row);
+      }
+    }
+
+    function buildKeyboard() {
+      const keyboard = document.getElementById("keyboard");
+      keyboard.innerHTML = "";
+      GREEK_KEYS.forEach(rowKeys => {
+        const kbRow = document.createElement("div");
+        kbRow.className = "kb-row";
+        rowKeys.forEach(k => {
+          const btn = document.createElement("button");
+          btn.className = "key" + (k.length > 1 ? " wide" : "");
+          btn.textContent = k;
+          btn.id = `key-${k}`;
+          btn.onclick = () => handleInput(k);
+          kbRow.appendChild(btn);
+        });
+        keyboard.appendChild(kbRow);
+      });
+    }
+
+    // =========================================================
+    // 5. ניהול קלט ובדיקת ניחושים
+    // =========================================================
+    function handleInput(key) {
+      if (isGameOver) return;
+      showMessage("");
+
+      if (key === "⌫" || key === "BACKSPACE") {
+        currentGuess = currentGuess.slice(0, -1);
+        updateGrid();
+      } else if (key === "ENTER") {
+        if (currentGuess.length < WORD_LENGTH) {
+          showMessage("המילה קצרה מדי (נדרשות 5 אותיות)");
+          return;
+        }
+        submitGuess();
+      } else if (currentGuess.length < WORD_LENGTH && /^[Α-Ω]$/.test(key)) {
+        currentGuess += key;
+        updateGrid();
+      }
+    }
+
+    function updateGrid() {
+      for (let c = 0; c < WORD_LENGTH; c++) {
+        const tile = document.getElementById(`tile-${currentRow}-${c}`);
+        tile.textContent = currentGuess[c] || "";
+      }
+    }
+
+    function submitGuess() {
+      let secretChars = secretWord.split("");
+      let guessChars = currentGuess.split("");
+      let statuses = Array(WORD_LENGTH).fill("absent");
+
+      // מעבר ראשון: איתור פגיעות מדויקות (ירוק - correct)
+      for (let i = 0; i < WORD_LENGTH; i++) {
+        if (guessChars[i] === secretChars[i]) {
+          statuses[i] = "correct";
+          secretChars[i] = null;
+        }
+      }
+
+      // מעבר שני: איתור אותיות קיימות במיקום שגוי (צהוב - present)
+      for (let i = 0; i < WORD_LENGTH; i++) {
+        if (statuses[i] === "correct") continue;
+        const indexInSecret = secretChars.indexOf(guessChars[i]);
+        if (indexInSecret !== -1) {
+          statuses[i] = "present";
+          secretChars[indexInSecret] = null;
+        }
+      }
+
+      // צביעת המשבצות והמקלדת
+      for (let i = 0; i < WORD_LENGTH; i++) {
+        const tile = document.getElementById(`tile-${currentRow}-${i}`);
+        tile.classList.add(statuses[i]);
+
+        const keyBtn = document.getElementById(`key-${guessChars[i]}`);
+        if (keyBtn) {
+          if (statuses[i] === "correct") {
+            keyBtn.className = "key correct";
+          } else if (statuses[i] === "present" && !keyBtn.classList.contains("correct")) {
+            keyBtn.className = "key present";
+          } else if (statuses[i] === "absent" && !keyBtn.classList.contains("correct") && !keyBtn.classList.contains("present")) {
+            keyBtn.className = "key absent";
+          }
+        }
+      }
+
+      // בדיקת סיום משחק (ניצחון או הפסד) והצגת מידע אפיגרפי
+      if (currentGuess === secretWord) {
+        showMessage("ניצחת! 🎉");
+        isGameOver = true;
+        showEpigraphicContext();
+      } else if (currentRow === MAX_GUESSES - 1) {
+        showMessage(`המשחק נגמר! המילה הייתה: ${secretWord}`);
+        isGameOver = true;
+        showEpigraphicContext();
+      } else {
+        currentRow++;
+        currentGuess = "";
+      }
+    }
+
+    function showEpigraphicContext() {
+      const entry = EPIGRAPHIC_DB[secretWord];
+      if (!entry) return;
+      const infoBox = document.getElementById("epigraphic-info");
+      infoBox.style.display = "block";
+      infoBox.innerHTML = `
+        <div><strong>Word:</strong> ${secretWord} (Frequency in corpus: ${entry.count})</div>
+        <div><strong>CIIP Inscription ID:</strong> ${entry.id}</div>
+        <div style="margin-top:4px;"><strong>Text:</strong> <em>${entry.text}</em></div>
+      `;
+    }
+
+    function showMessage(msg) {
+      document.getElementById("message").textContent = msg;
+    }
+
+    // האזנה למקלדת פיזית (תומך ביוונית ובמיפוי מקשים באנגלית)
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      let key = e.key.toUpperCase();
+      if (key === "ς" || key === "Ϲ") key = "Σ";
+      if (LATIN_TO_GREEK[key]) key = LATIN_TO_GREEK[key];
+      handleInput(key);
+    });
+
+    // הפעלת המשחק בטעינה ראשונית
+    initGame();
+  </script>
+</body>
+</html>
